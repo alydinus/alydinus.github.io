@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alydin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #04040e;
+      overflow: hidden;
+    }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+    }
+
+    /* subtle vignette */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(4,4,14,.75) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+/* ────────────────────────────────────────
+   MOUSE
+──────────────────────────────────────── */
+let mx = 0.5, my = 0.5;   // normalised 0-1
+let smx = 0.5, smy = 0.5; // smoothed
+window.addEventListener('mousemove', e => {
+  mx = e.clientX / W;
+  my = e.clientY / H;
+});
+
+/* ────────────────────────────────────────
+   STARS  (3 depth layers)
+──────────────────────────────────────── */
+function mkStars(n, rMin, rMax, speedMul) {
+  return Array.from({ length: n }, () => ({
+    x:     Math.random(),
+    y:     Math.random(),
+    r:     Math.random() * (rMax - rMin) + rMin,
+    phase: Math.random() * Math.PI * 2,
+    spd:   (Math.random() * .012 + .004) * speedMul,
+    depth: speedMul,          // used for mouse parallax
+  }));
+}
+const starsA = mkStars(180, .2, .8,  1);   // far
+const starsB = mkStars( 80, .5, 1.4, 1.8); // mid
+const starsC = mkStars( 30, .9, 2.2, 3);   // near
+
+function drawStars(layer, pxStrength) {
+  layer.forEach(s => {
+    s.phase += s.spd;
+    const op  = .15 + .6 * (.5 + .5 * Math.sin(s.phase));
+    const px  = (s.x + (smx - .5) * .04 * s.depth) * W;
+    const py  = (s.y + (smy - .5) * .03 * s.depth) * H;
+    ctx.beginPath();
+    ctx.arc(px, py, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${op})`;
+    ctx.fill();
+  });
+}
+
+/* ────────────────────────────────────────
+   AMBIENT ORBS
+──────────────────────────────────────── */
+const orbs = [
+  { bx:.15, by:.25, r:360, col:'88,28,220',  s:.00022 },
+  { bx:.85, by:.75, r:300, col:'0,170,200',  s:.00030 },
+  { bx:.50, by:.05, r:220, col:'120,60,255', s:.00017 },
+  { bx:.08, by:.88, r:200, col:'0,200,170',  s:.00038 },
+  { bx:.92, by:.15, r:180, col:'180,50,200', s:.00045 },
+];
+
+/* ────────────────────────────────────────
+   PARTICLES
+──────────────────────────────────────── */
+const pts = Array.from({ length: 90 }, () => ({
+  x:  Math.random(),
+  y:  Math.random(),
+  vx: (Math.random() - .5) * .00035,
+  vy: (Math.random() - .5) * .00035,
+  r:  Math.random() * 2 + .3,
+  op: Math.random() * .4 + .07,
+  hue: Math.random() > .5 ? 270 : 190,
+}));
+
+function drawLines() {
+  const MAX = 140;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const dx = (pts[i].x - pts[j].x) * W;
+      const dy = (pts[i].y - pts[j].y) * H;
+      const d  = Math.hypot(dx, dy);
+      if (d >= MAX) continue;
+      const a = (1 - d / MAX) * .12;
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(120,50,240,${a})`;
+      ctx.lineWidth   = .5;
+      ctx.moveTo(pts[i].x * W, pts[i].y * H);
+      ctx.lineTo(pts[j].x * W, pts[j].y * H);
+      ctx.stroke();
+    }
+  }
+}
+
+/* ────────────────────────────────────────
+   HEX GRID
+──────────────────────────────────────── */
+function drawHex(t) {
+  const sz   = Math.max(W, H) * .06;
+  const cols = Math.ceil(W / (sz * 1.5)) + 3;
+  const rows = Math.ceil(H / (sz * 1.73)) + 3;
+  const drift = Math.sin(t * .0005) * sz * .07;
+  const ecx = W * (.5 + (smx - .5) * .04);
+  const ecy = H * (.42 + (smy - .5) * .03);
+
+  ctx.save();
+  ctx.lineWidth = .55;
+  for (let c = -1; c < cols; c++) {
+    for (let r = -1; r < rows; r++) {
+      const x = c * sz * 1.5  + drift;
+      const y = r * sz * 1.73 + (c & 1) * sz * .865;
+      const dist  = Math.hypot(x - ecx, y - ecy) / Math.min(W, H);
+      const alpha = Math.max(0, .06 - dist * .09);
+      if (alpha <= 0) continue;
+      ctx.strokeStyle = `rgba(110,40,230,${alpha})`;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a  = (Math.PI / 3) * i - Math.PI / 6;
+        const px = x + sz * .87 * Math.cos(a);
+        const py = y + sz * .87 * Math.sin(a);
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/* ────────────────────────────────────────
+   THE EYE  (Gojo Six Eyes)
+──────────────────────────────────────── */
+let eyeRot   = 0;
+let eyePulse = 0;
+
+function drawEye(t) {
+  const ecx  = W * (.5  + (smx - .5) * .06);
+  const ecy  = H * (.42 + (smy - .5) * .05);
+  const base = Math.min(W, H) * .062;
+  const pulse = .96 + .04 * Math.sin(eyePulse);
+
+  // ── outer glow rings ──
+  for (let i = 4; i > 0; i--) {
+    const rr = base * i * 1.55 * pulse;
+    const g  = ctx.createRadialGradient(ecx, ecy, rr * .15, ecx, ecy, rr);
+    g.addColorStop(0, `rgba(110,40,230,${.028 / i})`);
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(ecx, ecy, rr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ── energy ring ──
+  ctx.save();
+  ctx.translate(ecx, ecy);
+  ctx.rotate(eyeRot * .7);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, base * 1.38 * pulse, base * .88 * pulse, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(167,139,250,${.12 + .06 * Math.sin(eyePulse * 1.3)})`;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(ecx, ecy);
+  ctx.rotate(-eyeRot * .45);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, base * 1.18 * pulse, base * .73 * pulse, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(34,211,238,${.08 + .04 * Math.sin(eyePulse)})`;
+  ctx.lineWidth = .8;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(ecx, ecy);
+
+  // ── iris ──
+  const iris = ctx.createRadialGradient(0, 0, 0, 0, 0, base * pulse);
+  iris.addColorStop(0,   'rgba(210,180,255,.60)');
+  iris.addColorStop(.3,  'rgba(110,40,220,.52)');
+  iris.addColorStop(.65, 'rgba(34,211,238,.22)');
+  iris.addColorStop(1,   'transparent');
+  ctx.fillStyle = iris;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, base * pulse, base * .63 * pulse, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── iris detail rings ──
+  for (let i = 1; i <= 3; i++) {
+    const rr = base * .22 * i * pulse;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rr, rr * .63, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(167,139,250,${.08 - i * .02})`;
+    ctx.lineWidth = .5;
+    ctx.stroke();
+  }
+
+  // ── pupil ──
+  const pu = ctx.createRadialGradient(0, 0, 0, 0, 0, base * .30 * pulse);
+  pu.addColorStop(0, 'rgba(6,4,20,.98)');
+  pu.addColorStop(1, 'rgba(50,15,110,.5)');
+  ctx.fillStyle = pu;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, base * .30 * pulse, base * .19 * pulse, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── pupil shine ──
+  const shine = ctx.createRadialGradient(-base*.07,-base*.05, 0, -base*.07,-base*.05, base*.10);
+  shine.addColorStop(0, 'rgba(255,255,255,.35)');
+  shine.addColorStop(1, 'transparent');
+  ctx.fillStyle = shine;
+  ctx.beginPath();
+  ctx.arc(-base * .07, -base * .05, base * .10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ── hex spokes (rotating) ──
+  ctx.rotate(eyeRot);
+  ctx.strokeStyle = `rgba(167,139,250,.10)`;
+  ctx.lineWidth = .7;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * base * 1.7, Math.sin(a) * base * 1.7);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // ── eyelid curves (top + bottom) ──
+  ctx.save();
+  ctx.translate(ecx, ecy);
+  const ew = base * 1.55 * pulse;
+  const eh = base * .72 * pulse;
+
+  ctx.beginPath();
+  ctx.moveTo(-ew, 0);
+  ctx.quadraticCurveTo(0, -eh * 1.15, ew, 0);
+  ctx.strokeStyle = `rgba(200,160,255,${.18 + .06 * Math.sin(eyePulse)})`;
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(-ew, 0);
+  ctx.quadraticCurveTo(0, eh * .95, ew, 0);
+  ctx.strokeStyle = `rgba(200,160,255,${.13 + .05 * Math.sin(eyePulse)})`;
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  // ── lash tips ──
+  const lashPts = [-ew, -ew*.55, -ew*.2, ew*.2, ew*.55, ew];
+  lashPts.forEach(lx => {
+    const t2 = lx / ew;                                // -1..1
+    const ly = -(Math.sqrt(Math.max(0, 1 - t2*t2))) * eh;
+    const len = (base * .18) * (1 - Math.abs(t2) * .5);
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.lineTo(lx + t2 * len * .3, ly - len);
+    ctx.strokeStyle = `rgba(210,180,255,.22)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  ctx.restore();
+}
+
+/* ────────────────────────────────────────
+   SAKURA PETALS  (anime touch)
+──────────────────────────────────────── */
+const petals = Array.from({ length: 28 }, () => ({
+  x:   Math.random(),
+  y:   Math.random() * 1.2 - .1,
+  vx:  (Math.random() - .5) * .0006,
+  vy:  Math.random() * .0007 + .0002,
+  rot: Math.random() * Math.PI * 2,
+  vr:  (Math.random() - .5) * .012,
+  s:   Math.random() * .016 + .006,
+  op:  Math.random() * .35 + .08,
+  hue: Math.random() * 40 + 280,   // purple-pink range
+}));
+
+function drawPetals() {
+  petals.forEach(p => {
+    p.x   += p.vx;
+    p.y   += p.vy;
+    p.rot += p.vr;
+    if (p.y > 1.1) { p.y = -.05; p.x = Math.random(); }
+    if (p.x < -.05) p.x = 1.05;
+    if (p.x > 1.05) p.x = -.05;
+
+    const px  = p.x * W;
+    const py  = p.y * H;
+    const sz  = p.s * Math.min(W, H);
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(p.rot);
+    ctx.globalAlpha = p.op;
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, sz, sz * .5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `hsl(${p.hue}, 80%, 75%)`;
+    ctx.fill();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  });
+}
+
+/* ────────────────────────────────────────
+   MAIN LOOP
+──────────────────────────────────────── */
+let t = 0;
+(function loop() {
+  requestAnimationFrame(loop);
+  t++;
+
+  eyeRot   += .0028;
+  eyePulse += .022;
+
+  smx += (mx - smx) * .055;
+  smy += (my - smy) * .055;
+
+  // Background
+  ctx.fillStyle = '#04040e';
+  ctx.fillRect(0, 0, W, H);
+
+  drawHex(t);
+
+  // Orbs (mouse influences position slightly)
+  orbs.forEach((o, i) => {
+    const ox = (o.bx + Math.sin(t * o.s * 1.4 + i * 1.1) * .07 + (smx - .5) * .05) * W;
+    const oy = (o.by + Math.cos(t * o.s       + i * .9)  * .07 + (smy - .5) * .04) * H;
+    const g  = ctx.createRadialGradient(ox, oy, 0, ox, oy, o.r);
+    g.addColorStop(0, `rgba(${o.col},.13)`);
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(ox, oy, o.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Particles
+  pts.forEach(p => {
+    p.x += p.vx; if (p.x < 0) p.x = 1; if (p.x > 1) p.x = 0;
+    p.y += p.vy; if (p.y < 0) p.y = 1; if (p.y > 1) p.y = 0;
+    ctx.beginPath();
+    ctx.arc(p.x * W, p.y * H, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${p.hue},80%,70%,${p.op})`;
+    ctx.fill();
+  });
+
+  drawLines();
+  drawStars(starsA, .04);
+  drawStars(starsB, .06);
+  drawStars(starsC, .10);
+  drawPetals();
+  drawEye(t);
+})();
+</script>
+</body>
+</html>

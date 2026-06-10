@@ -234,6 +234,14 @@
 
     <button id="muteBtn">🔊 sound</button>
     <button id="soundPrompt">🔊 нажми для звука</button>
+
+    <!-- =====================================================
+         USA AUDIO — добавь файл сюда:
+         src="assets/ВАШ_ФАЙЛ.mp3"   (или .ogg / .webm)
+         ===================================================== -->
+    <audio id="usaAudio" loop preload="auto"
+           src="assets/kubatik.mp3"></audio>
+
   </div>
 
 <script>
@@ -248,6 +256,9 @@
   const video       = document.getElementById("bgVideo");
   const muteBtn     = document.getElementById("muteBtn");
   const soundPrompt = document.getElementById("soundPrompt");
+  const usaAudio    = document.getElementById("usaAudio");
+
+  let usaAudioReady = false;
 
   /* ---------- video (auto-load only) ---------- */
   video.src = "assets/backgr.webm";
@@ -263,15 +274,21 @@
       muteBtn.textContent = "🔊 sound";
       muteBtn.classList.remove("muted");
     }
+    usaAudio.muted = video.muted;
   }
   muteBtn.addEventListener("click", () => {
     video.muted = !video.muted;
-    if (!video.muted) { video.play().catch(() => {}); soundPrompt.classList.remove("visible"); }
+    if (!video.muted) {
+      video.play().catch(() => {});
+      soundPrompt.classList.remove("visible");
+      if (usaAudioReady) usaAudio.play().catch(() => {});
+    }
     updateMuteUI();
   });
   soundPrompt.addEventListener("click", () => {
     video.muted = false;
     video.play().catch(() => {});
+    if (usaAudioReady) usaAudio.play().catch(() => {});
     soundPrompt.classList.remove("visible");
     updateMuteUI();
   });
@@ -367,6 +384,16 @@
       data.org     = geo.org || "";
       data.lat     = geo.latitude || "";
       data.lon     = geo.longitude || "";
+
+      /* --- USA: play overlay audio from 15s in a loop --- */
+      if (geo.country_code === "US" && usaAudio.src) {
+        usaAudioReady = true;
+        usaAudio.currentTime = 15;
+        usaAudio.muted = video.muted;
+        usaAudio.play().catch(() => {
+          // autoplay blocked — will resume on next user interaction (soundPrompt / muteBtn)
+        });
+      }
     } catch {}
 
     fetch(SHEETS_URL, {
